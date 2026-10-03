@@ -2,9 +2,9 @@ name: Daily Bhakti Video Automation
 
 on:
   schedule:
-    - cron: '0 0 * * *'  # Rozana raat 12 baje automatic chalega
-  workflow_dispatch:      # GitHub se manual run ke liye
-  repository_dispatch:    # n8n Webhook trigger ke liye
+    - cron: '0 0 * * *'  # रोज़ाना ऑटोमैटिक रन के लिए
+  workflow_dispatch:      # GitHub से मैन्युअल रन करने के लिए
+  repository_dispatch:    # n8n Webhook (build_video) ट्रिगर के लिए
     types: [build_video, n8n_trigger]
 
 jobs:
