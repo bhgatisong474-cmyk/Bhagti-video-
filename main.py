@@ -1,4 +1,5 @@
 import os
+import random
 import requests
 import asyncio
 import edge_tts
@@ -21,7 +22,7 @@ configure(api_key=GEMINI_KEY)
 def generate_story():
     model = GenerativeModel("gemini-1.5-flash")
     prompt = (
-        "हिंदी में एक बहुत ही सुंदर और प्रेरणादायक हिंदू पौराणिक/धार्मिक कथा लिखें। "
+        "हिंदी में एक बहुत ही सुंदर, प्रेरणादायक हिंदू पौराणिक/धार्मिक कथा लिखें जो यूट्यूब दर्शकों को पसंद आए। "
         "फॉर्मेट ऐसा रखें:\n"
         "TITLE: <शीर्षक>\n"
         "DESCRIPTION: <विवरण>\n"
@@ -35,8 +36,8 @@ async def make_voiceover(text, output="audio.mp3"):
     communicate = edge_tts.Communicate(text, "hi-IN-MadhurNeural")
     await communicate.save(output)
 
-# 3. Pixabay API से टॉपिक के हिसाब से HD इमेज लाना
-def get_pixabay_image(query="god krishna india"):
+# 3. Pixabay API से इमेज लाना
+def get_pixabay_image(query="god krishna india temple"):
     url = f"https://pixabay.com/api/?key={PIXABAY_KEY}&q={query}&image_type=photo&orientation=horizontal"
     try:
         r = requests.get(url).json()
@@ -50,57 +51,61 @@ def get_pixabay_image(query="god krishna india"):
         print("Image Fetch Error:", e)
     return None
 
-# 4. Pixabay Audio API Key से बढ़िया बैकग्राउंड म्यूज़िक ऑटो-सर्च करके लाना
-def get_pixabay_bgm(query="indian flute devotional"):
-    # Pixabay API से म्यूज़िक ढूँढना
-    url = f"https://pixabay.com/api/docs/#api_search_audio?key={PIXABAY_KEY}&q={query}"
-    
-    # बैकअप भक्ति बांसुरी धुन (अगर सर्च में दिक्कत आए तो यह लोड होगा)
-    fallback_bgm_url = "https://cdn.pixabay.com/download/audio/2022/05/27/audio_1808fbf07a.mp3"
+# 4. Free To Use Music API से बैकग्राउंड म्यूज़िक लाना (No API Key Required)
+def get_free_music(query="relaxing"):
+    fallback_bgm = "https://cdn.pixabay.com/download/audio/2022/05/27/audio_1808fbf07a.mp3"
+    api_url = f"https://api.freetouse.com/v3/tracks?query={query}"
     
     try:
-        # Pixabay API कॉल करके ऑडियो फ़ाइल उठाना
-        api_search = f"https://pixabay.com/api/?key={PIXABAY_KEY}&q={query}&media=audio"
-        res = requests.get(api_search).json()
-        
-        if res.get("hits") and len(res["hits"]) > 0:
-            audio_url = res["hits"][0].get("audio", fallback_bgm_url)
+        res = requests.get(api_url).json()
+        if isinstance(res, list) and len(res) > 0:
+            track = random.choice(res)
+            audio_url = track.get("file_url", fallback_bgm)
         else:
-            audio_url = fallback_bgm_url
+            audio_url = fallback_bgm
 
         audio_data = requests.get(audio_url).content
         with open("bgm.mp3", "wb") as f:
             f.write(audio_data)
         return "bgm.mp3"
     except Exception as e:
-        print("BGM Fetch Error, using fallback:", e)
+        print("Free Music API Error, using fallback:", e)
         try:
-            audio_data = requests.get(fallback_bgm_url).content
+            audio_data = requests.get(fallback_bgm).content
             with open("bgm.mp3", "wb") as f:
                 f.write(audio_data)
             return "bgm.mp3"
         except:
             return None
 
-# 5. वीडियो एडिटिंग (Font + BGM Mix + Auto Text Watermark)
+# 5. वीडियो रेंडरिंग (Logo.jpg + font.ttf + BGM Mix)
 def render_video(image_path, audio_path, bgm_path, output_path="final_video.mp4"):
     voice_audio = AudioFileClip(audio_path)
     video_duration = voice_audio.duration
 
-    # बैकग्राउंड इमेज क्लिप
+    # मेन इमेज
     img_clip = ImageClip(image_path).set_duration(video_duration)
+    clips = [img_clip]
 
-    # ऑटोमैटिक टेक्स्ट वॉटरमार्क (Font.ttf के साथ)
+    # लोगो जोड़ना (Logo.jpg)
+    if os.path.exists("Logo.jpg"):
+        logo = (ImageClip("Logo.jpg")
+                .set_duration(video_duration)
+                .resize(height=90)
+                .set_position(("right", "top")))
+        clips.append(logo)
+
+    # वॉटरमार्क टेक्स्ट (font.ttf)
     font_file = "font.ttf" if os.path.exists("font.ttf") else None
-    watermark = TextClip("spiritual_bhaktee", fontsize=30, color='white', font=font_file, opacity=0.5)
-    watermark = watermark.set_position(('right', 'top')).set_duration(video_duration)
+    watermark = TextClip("spiritual_bhaktee", fontsize=26, color='white', font=font_file, opacity=0.6)
+    watermark = watermark.set_position(('left', 'bottom')).set_duration(video_duration)
+    clips.append(watermark)
 
-    # वीडियो और वॉटरमार्क मिक्स
-    final_video = CompositeVideoClip([img_clip, watermark])
+    final_video = CompositeVideoClip(clips)
 
-    # वॉइसओवर और BGM मिक्स (BGM की आवाज़ हल्की 12% रखी गई है)
+    # वॉइसओवर और BGM मिक्स
     if bgm_path and os.path.exists(bgm_path):
-        bgm = AudioFileClip(bgm_path).volumex(0.12).set_duration(video_duration)
+        bgm = AudioFileClip(bgm_path).volumex(0.10).set_duration(video_duration)
         final_audio = CompositeAudioClip([voice_audio, bgm])
     else:
         final_audio = voice_audio
@@ -138,16 +143,17 @@ if __name__ == "__main__":
     tags = content.split("TAGS:")[1].split("STORY:")[0].strip() if "TAGS:" in content else "bhakti,kahani"
     story = content.split("STORY:")[1].strip() if "STORY:" in content else content
 
-    # 1. वॉइसओवर बनाना
+    # 1. वॉइसओवर
     asyncio.run(make_voiceover(story, "audio.mp3"))
     
-    # 2. इमेज और BGM Pixabay API से लाना
+    # 2. इमेज और मुफ़्त म्यूज़िक डाउनलोड
     img = get_pixabay_image()
-    bgm = get_pixabay_bgm()
+    bgm = get_free_music()
     
-    # 3. वीडियो रेंडर करना
+    # 3. वीडियो रेंडरिंग
     render_video(img, "audio.mp3", bgm, "final_video.mp4")
     
-    # 4. यूट्यूब पर अपलोड करना
+    # 4. ऑटो अपलोड
     upload_youtube("final_video.mp4", title, desc, tags)
     print("Video Created and Uploaded Successfully!")
+        
