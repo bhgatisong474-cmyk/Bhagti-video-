@@ -2,10 +2,10 @@ name: Daily Bhakti Video Automation
 
 on:
   schedule:
-    - cron: '0 0 * * *'  # रोज़ाना रात 12 बजे ऑटोमैटिक चलेगा
-  workflow_dispatch:      # मैन्युअल या n8n ट्रिगर के लिए
-  repository_dispatch:    # n8n Webhook ट्रिगर के लिए
-    types: [n8n_trigger]
+    - cron: '0 0 * * *'  # Rozana raat 12 baje automatic chalega
+  workflow_dispatch:      # GitHub se manual run ke liye
+  repository_dispatch:    # n8n Webhook trigger ke liye
+    types: [build_video, n8n_trigger]
 
 jobs:
   build-and-upload:
@@ -16,7 +16,7 @@ jobs:
         uses: actions/checkout@v3
 
       - name: Set up Python
-        uses: actions/python-10@v4
+        uses: actions/setup-python@v4
         with:
           python-version: '3.10'
 
@@ -27,7 +27,7 @@ jobs:
 
       - name: Configure ImageMagick Security Policy
         run: |
-          sudo sed -i 's/<policy domain="path" rights="none" pattern="@\*" \/>/<policy domain="path" rights="read | write" pattern="@\*" \/>/' /etc/ImageMagick-6/policy.xml
+          sudo sed -i 's/policy domain="path" rights="none" pattern="@*"/<!-- policy domain="path" rights="none" pattern="@*" -->/' /etc/ImageMagick-6/policy.xml
 
       - name: Install Python Dependencies
         run: |
