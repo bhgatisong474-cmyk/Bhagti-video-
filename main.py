@@ -20,7 +20,8 @@ configure(api_key=GEMINI_KEY)
 
 # 1. Gemini AI से कहानी और मेटाडेटा बनाना
 def generate_story():
-    model = GenerativeModel("gemini-1.5-flash")
+    model = GenerativeModel("gemini-2.5-flash")
+    
     prompt = (
         "हिंदी में एक बहुत ही सुंदर, प्रेरणादायक हिंदू पौराणिक/धार्मिक कथा लिखें जो यूट्यूब दर्शकों को पसंद आए। "
         "फॉर्मेट ऐसा रखें:\n"
