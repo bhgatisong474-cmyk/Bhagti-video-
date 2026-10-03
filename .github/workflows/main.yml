@@ -1,38 +1,45 @@
-name: Daily Bhakti Video Upload
+name: Daily Bhakti Video Automation
 
 on:
   schedule:
-    - cron: '0 2 * * *' # भारतीय समय के अनुसार रोज सुबह 7:30 बजे ऑटोमैटिक चलेगा
-  workflow_dispatch:
+    - cron: '0 0 * * *'  # रोज़ाना रात 12 बजे ऑटोमैटिक चलेगा
+  workflow_dispatch:      # मैन्युअल या n8n ट्रिगर के लिए
+  repository_dispatch:    # n8n Webhook ट्रिगर के लिए
+    types: [n8n_trigger]
 
 jobs:
-  build-and-run:
+  build-and-upload:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
+      - name: Check out Repository
+        uses: actions/checkout@v3
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/python-10@v4
         with:
           python-version: '3.10'
 
-      - name: Install FFmpeg
-        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      - name: Install System Dependencies (FFmpeg & ImageMagick)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg imagemagick
 
-      - name: Install Dependencies
+      - name: Configure ImageMagick Security Policy
+        run: |
+          sudo sed -i 's/<policy domain="path" rights="none" pattern="@\*" \/>/<policy domain="path" rights="read | write" pattern="@\*" \/>/' /etc/ImageMagick-6/policy.xml
+
+      - name: Install Python Dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install requests edge-tts google-generativeai google-api-python-client google-auth-oauthlib moviepy
+          pip install -r requirements.txt
 
-      - name: Run Auto Generator Script
+      - name: Run Video Automation Script
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           PIXABAY_API_KEY: ${{ secrets.PIXABAY_API_KEY }}
-          YOUTUBE_CLIENT_ID: ${{ secrets.CLIENT_ID }}
-          YOUTUBE_CLIENT_SECRET: ${{ secrets.CLIENT_SECRET }}
-          YOUTUBE_REFRESH_TOKEN: ${{ secrets.REFRESH_TOKEN }}
-        run: |
-          python main.py
-          
+          YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
+          YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
+          YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
+        run: python main.py
+        
