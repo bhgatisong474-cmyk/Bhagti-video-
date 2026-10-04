@@ -512,3 +512,124 @@ def generate_bgm(path="bgm_gen.wav", loop_sec=24, sr=22050):
                  start, 8.0, 2.5, 0.06)
     for k, (mult, amp) in enumerate([(1, .10), (1.5, .06), (2, .05)], start=1):
         f 
+# ==================================================================
+if __name__ == "__main__":
+    print("Starting Daily Bhakti Video Automation (Long Video)...")
+    check_secrets()
+
+    plan = generate_content()
+    title = plan.get("title") or "भगवान की सुंदर कथा"
+    story = plan["story"]
+    description = (plan.get("description") or "") + (
+        f"\n\n🙏 {CHANNEL_NAME} - रोज़ एक नई भक्ति कथा के लिए चैनल को "
+        "Subscribe करें और बेल आइकन दबाएँ।"
+    )
+    tags = plan.get("tags") or ["bhakti", "katha"]
+    thumb_text = plan.get("thumbnail_text") or title
+    queries = plan.get("image_queries") or ["hindu temple", "diya lamp", "lotus flower"]
+
+    # 1. Voiceover
+    make_voiceover(story, "audio.mp3")
+    
+    # Audio ki lambai ke hisaab se target images tay karna (15 second par 1 image)
+    voice_clip = AudioFileClip("audio.mp3")
+    duration = voice_clip.duration
+    voice_clip.close()
+    target_images = max(10, min(MAX_IMAGES, int(duration / SECONDS_PER_IMAGE)))
+
+    # 2. Images
+    images = download_images(queries, target_images)
+    if not images:
+        raise SystemExit("Error: koi image nahi mili (Pixabay key check karein).")
+
+    # 3. Thumbnail & Title Card
+    best_img = pick_best_image(images)
+    thumb = make_thumbnail(best_img, thumb_text)
+    title_img, title_mask = make_title_card(title)
+    title_img_path = "title_card.jpg"
+    title_img.save(title_img_path)
+
+    # 4. BGM & Video Render
+    bgm = (glob.glob("music/*.mp3") + glob.glob("music/*.wav") + glob.glob("bgm*.mp3") or [None])[0]
+    if not bgm:
+        bgm = generate_bgm()
+
+    # Video clips assemble karna
+    clips = []
+    # Shuru me title card
+    tc = ImageClip(title_img_path).set_duration(TITLE_SECONDS).crossfadein(1).crossfadeout(1)
+    clips.append(tc)
+
+    # Baaki images
+    per_img_time = max(4.0, (duration - TITLE_SECONDS) / len(images))
+    for p in images:
+        img_clip = ImageClip(cover_crop(Image.open(p))).set_duration(per_img_time).crossfadein(FADE)
+        clips.append(img_clip)
+
+    from moviepy.editor import concatenate_videoclips
+    final_video_clip = concatenate_videoclips(clips, method="compose")
+
+    # Audio jodna
+    voice = AudioFileClip("audio.mp3")
+    if bgm and os.path.exists(bgm):
+        bgm_clip = audio_loop(AudioFileClip(bgm).volumex(BGM_VOLUME), duration=voice.duration)
+        final_audio = CompositeAudioClip([voice, bgm_clip]).set_duration(voice.duration)
+    else:
+        final_audio = voice
+
+    final_video_clip = final_video_clip.set_audio(final_audio)
+    output_path = "final_video.mp4"
+    final_video_clip.write_videofile(
+        output_path, fps=FPS, codec="libx264", audio_codec="aac",
+        preset="ultrafast", threads=2,
+    )
+    print("Video rendered successfully!")
+
+    # 5. YouTube Upload
+    def clean(s):
+        return re.sub(r"[<>]", "", str(s)).strip()
+
+    def cut_bytes(s, limit):
+        return s.encode("utf-8")[:limit].decode("utf-8", "ignore")
+
+    creds = Credentials(
+        None,
+        refresh_token=YT_REFRESH_TOKEN,
+        token_uri="https://oauth2.googleapis.com/token",
+        client_id=YT_CLIENT_ID,
+        client_secret=YT_CLIENT_SECRET,
+    )
+    youtube = build("youtube", "v3", credentials=creds)
+
+    clean_tags, total = [], 0
+    for t in tags:
+        t = clean(t).replace(",", "")
+        if t and total + len(t) < 450:
+            clean_tags.append(t)
+            total += len(t)
+
+    body = {
+        "snippet": {
+            "title": clean(title)[:100],
+            "description": cut_bytes(clean(description), 4800),
+            "tags": clean_tags,
+            "categoryId": "22",
+            "defaultLanguage": "hi",
+        },
+        "status": {"privacyStatus": PRIVACY, "selfDeclaredMadeForKids": False},
+    }
+    media = MediaFileUpload(output_path, chunksize=-1, resumable=True)
+    response = youtube.videos().insert(
+        part="snippet,status", body=body, media_body=media
+    ).execute()
+    video_id = response.get("id")
+    print("Uploaded! https://youtu.be/" + str(video_id))
+
+    try:
+        youtube.thumbnails().set(
+            videoId=video_id, media_body=MediaFileUpload(thumb)
+        ).execute()
+        print("Thumbnail set successfully")
+    except Exception as e:
+        print("Thumbnail error:", str(e)[:200])
+        
