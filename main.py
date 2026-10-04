@@ -3,8 +3,8 @@ import re
 import json
 import glob
 import wave
-import random
 import time
+import random
 import asyncio
 import datetime
 import requests
@@ -24,10 +24,15 @@ from moviepy.audio.fx.all import audio_loop
 # SETTINGS (yahan apne hisaab se badlein)
 # ------------------------------------------------------------------
 CHANNEL_NAME = "Spiritual Bhakti"      # video par dikhne wala channel naam
-GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.8-flash")
+GEMINI_MODELS = [
+    os.environ.get("GEMINI_MODEL", "gemini-3.8-flash"),
+    "gemini-3.8-flash",
+    "gemini-flash-latest",
+]
 VOICE = "hi-IN-MadhurNeural"           # female ke liye: hi-IN-SwaraNeural
 PRIVACY = "public"                     # testing ke liye "private" kar sakte hain
 BGM_VOLUME = 0.12
+FPS = 10
 W, H = 1280, 720
 
 GEMINI_KEY = os.environ.get("GEMINI_API_KEY")
@@ -38,9 +43,24 @@ YT_REFRESH_TOKEN = os.environ.get("YOUTUBE_REFRESH_TOKEN")
 TOPIC = (os.environ.get("TOPIC") or "").strip()   # n8n se aa sakta hai
 
 
+def check_secrets():
+    missing = [n for n, v in [
+        ("GEMINI_API_KEY", GEMINI_KEY), ("PIXABAY_API_KEY", PIXABAY_KEY),
+        ("YOUTUBE_CLIENT_ID", YT_CLIENT_ID), ("YOUTUBE_CLIENT_SECRET", YT_CLIENT_SECRET),
+        ("YOUTUBE_REFRESH_TOKEN", YT_REFRESH_TOKEN)] if not v]
+    if missing:
+        raise SystemExit("Ye secrets khaali hain: " + ", ".join(missing))
+
+
 # ------------------------------------------------------------------
 # 1. Gemini se script, title, description, tags, thumbnail text
 # ------------------------------------------------------------------
+def parse_json(text):
+    text = (text or "").strip()
+    text = re.sub(r"^```(?:json)?|```$", "", text, flags=re.M).strip()
+    return json.loads(text)
+
+
 def generate_content():
     ist = datetime.timezone(datetime.timedelta(hours=5, minutes=30))
     today = datetime.datetime.now(ist).strftime("%d %B %Y")
@@ -65,7 +85,7 @@ medical or astrology predictions.
 
 Return ONLY valid JSON (no markdown) with these keys:
 - "title": Hindi, catchy, max 90 characters
-- "description": Hindi, 150-250 words, hashtags at the end
+- "description": Hindi, 120-200 words, hashtags at the end
 - "tags": list of 10-15 strings (Hindi + English)
 - "thumbnail_text": max 6 Hindi words, punchy
 - "image_queries": list of 8 short English search queries for stock photos
@@ -73,54 +93,66 @@ Return ONLY valid JSON (no markdown) with these keys:
 - "story": the full narration, plain text only, no headings, no stage directions
 """
     client = genai.Client(api_key=GEMINI_KEY)
-    response = None
     last_error = None
-    # 503 (high demand) aaye to ruk kar dobara try karega; model band ho to agla model
-    for model_name in [GEMINI_MODEL, "gemini-3.8-flash", "gemini-flash-latest"]:
+    for model_name in dict.fromkeys(GEMINI_MODELS):      # duplicates hata kar
         for attempt in range(1, 6):
             try:
                 response = client.models.generate_content(
                     model=model_name,
                     contents=prompt,
-                    config=types.GenerateContentConfig(response_mime_type="application/json"),
+                    config=types.GenerateContentConfig(
+                        response_mime_type="application/json"),
                 )
-                print("Gemini model used:", model_name)
-                break
+                data = parse_json(response.text)
+                if len(data.get("story", "")) < 500:
+                    raise ValueError("story bahut chhoti aayi")
+                print("Gemini model used:", model_name, "| title:", data.get("title"))
+                return data
             except Exception as e:
                 last_error = e
                 msg = str(e)
-                print(f"Model {model_name} attempt {attempt} failed:", msg[:150])
+                print(f"[{model_name}] attempt {attempt} failed: {msg[:150]}")
                 if "404" in msg or "NOT_FOUND" in msg:
-                    break                      # ye model hi nahi hai, agla try karo
-                time.sleep(30 * attempt)       # 30s, 60s, 90s... ruk kar dobara
-        if response is not None:
-            break
-    if response is None:
-        raise last_error
-    text = response.text.strip()
-    text = re.sub(r"^```(?:json)?|```$", "", text, flags=re.M).strip()
-    data = json.loads(text)
-    print("Gemini content ready:", data.get("title"))
-    return data
+                    break                       # ye model hi nahi hai -> agla model
+                if isinstance(e, ValueError):
+                    time.sleep(5)               # JSON/short story: jaldi dobara
+                else:
+                    time.sleep(min(30 * attempt, 90))   # 503 etc: ruk kar dobara
+    raise RuntimeError("Gemini se content nahi mila") from last_error
 
 
 # ------------------------------------------------------------------
-# 2. Voiceover (Edge TTS)
+# 2. Voiceover (Edge TTS, fail ho to gTTS)
 # ------------------------------------------------------------------
-async def make_voiceover(text, output_path="audio.mp3"):
+async def _edge_save(text, path):
     import edge_tts
-    communicate = edge_tts.Communicate(text, VOICE, rate="-5%")
-    await communicate.save(output_path)
-    print("Voiceover ready")
-    return output_path
+    await edge_tts.Communicate(text, VOICE, rate="-5%").save(path)
+
+
+def make_voiceover(text, path="audio.mp3"):
+    for attempt in range(1, 4):
+        try:
+            asyncio.run(_edge_save(text, path))
+            if os.path.exists(path) and os.path.getsize(path) > 10000:
+                print("Voiceover ready (edge-tts)")
+                return path
+            raise RuntimeError("audio khaali hai")
+        except Exception as e:
+            print(f"Edge TTS attempt {attempt} failed:", str(e)[:150])
+            time.sleep(5 * attempt)
+    print("Edge TTS fail hua, gTTS use kar rahe hain...")
+    from gtts import gTTS
+    gTTS(text=text, lang="hi", slow=False).save(path)
+    print("Voiceover ready (gTTS)")
+    return path
 
 
 # ------------------------------------------------------------------
 # 3. Pixabay se images
 # ------------------------------------------------------------------
 def download_images(queries, max_images=8):
-    paths = []
-    seen = set()
+    paths, seen = [], set()
+    headers = {"User-Agent": "Mozilla/5.0"}
     for q in queries:
         if len(paths) >= max_images:
             break
@@ -132,7 +164,7 @@ def download_images(queries, max_images=8):
                     "orientation": "horizontal", "safesearch": "true",
                     "per_page": 5,
                 },
-                timeout=30,
+                headers=headers, timeout=30,
             ).json()
             for hit in r.get("hits", []):
                 url = hit["largeImageURL"]
@@ -141,28 +173,76 @@ def download_images(queries, max_images=8):
                 seen.add(url)
                 path = f"bg_{len(paths)}.jpg"
                 with open(path, "wb") as f:
-                    f.write(requests.get(url, timeout=60).content)
+                    f.write(requests.get(url, headers=headers, timeout=60).content)
+                Image.open(path).verify()          # kharab image pakadne ke liye
                 paths.append(path)
                 break
         except Exception as e:
-            print("Image error:", q, e)
+            print("Image error:", q, str(e)[:100])
     if not paths and os.path.exists("Logo.jpg"):
-        paths = ["Logo.jpg"]     # koi image na mile to logo hi chalega
+        paths = ["Logo.jpg"]                       # koi image na mile to logo hi chalega
     print("Images:", len(paths))
     return paths
 
 
 # ------------------------------------------------------------------
-# 4. Frames aur thumbnail (Pillow se)
+# 4. Fonts, frames aur thumbnail (Pillow se)
 # ------------------------------------------------------------------
-def load_font(size):
+LATIN_FONTS = ["/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", "font.ttf"]
+DEVA_FONTS = [
+    "font.ttf",
+    "/usr/share/fonts/truetype/lohit-devanagari/Lohit-Devanagari.ttf",
+    "/usr/share/fonts/truetype/noto/NotoSansDevanagari-Bold.ttf",
+]
+_font_cache = {}
+
+
+def _open_font(path, size):
+    if not os.path.exists(path):
+        return None
     try:
-        return ImageFont.truetype("font.ttf", size, layout_engine=ImageFont.Layout.RAQM)
+        return ImageFont.truetype(path, size, layout_engine=ImageFont.Layout.RAQM)
     except Exception:
         try:
-            return ImageFont.truetype("font.ttf", size)
+            return ImageFont.truetype(path, size)
         except Exception:
-            return ImageFont.load_default()
+            return None
+
+
+def _has_glyph(font, ch):
+    """True agar font me ye akshar sach me hai (khaali dabba nahi)."""
+    try:
+        a = Image.new("L", (150, 150), 0)
+        b = Image.new("L", (150, 150), 0)
+        ImageDraw.Draw(a).text((10, 10), ch, font=font, fill=255)
+        ImageDraw.Draw(b).text((10, 10), "\U0010FFFF", font=font, fill=255)
+        return a.tobytes() != b.tobytes()
+    except Exception:
+        return False
+
+
+def font_for(text, size):
+    is_hindi = any("\u0900" <= c <= "\u097F" for c in text)
+    key = (is_hindi, size)
+    if key in _font_cache:
+        return _font_cache[key]
+    candidates = DEVA_FONTS if is_hindi else LATIN_FONTS
+    test_char = "क" if is_hindi else "A"
+    chosen = None
+    for p in candidates:
+        f = _open_font(p, size)
+        if f and _has_glyph(f, test_char):
+            chosen = f
+            break
+    if chosen is None:
+        for p in candidates:
+            chosen = _open_font(p, size)
+            if chosen:
+                break
+    if chosen is None:
+        chosen = ImageFont.load_default()
+    _font_cache[key] = chosen
+    return chosen
 
 
 def cover_crop(img):
@@ -174,6 +254,13 @@ def cover_crop(img):
     return img.crop((left, top, left + W, top + H))
 
 
+def circle_logo(size):
+    logo = Image.open("Logo.jpg").convert("RGBA").resize((size, size), Image.LANCZOS)
+    mask = Image.new("L", (size, size), 0)
+    ImageDraw.Draw(mask).ellipse([0, 0, size - 1, size - 1], fill=255)
+    return logo, mask
+
+
 def make_frame(bg_path):
     img = cover_crop(Image.open(bg_path)).convert("RGBA")
     overlay = Image.new("RGBA", (W, H), (0, 0, 0, 0))
@@ -182,19 +269,16 @@ def make_frame(bg_path):
 
     x = 20
     if os.path.exists("Logo.jpg"):
-        logo = Image.open("Logo.jpg").convert("RGBA").resize((70, 70), Image.LANCZOS)
-        mask = Image.new("L", (70, 70), 0)
-        ImageDraw.Draw(mask).ellipse([0, 0, 70, 70], fill=255)
+        logo, mask = circle_logo(70)
         overlay.paste(logo, (20, H - 83), mask)
         x = 105
+    d.text((x, H - 78), CHANNEL_NAME, font=font_for(CHANNEL_NAME, 34),
+           fill=(255, 255, 255, 255))
 
-    d.text((x, H - 78), CHANNEL_NAME, font=load_font(34), fill=(255, 255, 255, 255))
-
-    # Subscribe button
     bx0, by0, bx1, by1 = W - 290, H - 78, W - 20, H - 18
     d.rounded_rectangle([bx0, by0, bx1, by1], radius=14, fill=(220, 20, 20, 255))
-    d.text((bx0 + 32, by0 + 10), "SUBSCRIBE", font=load_font(34), fill=(255, 255, 255, 255))
-
+    d.text((bx0 + 32, by0 + 12), "SUBSCRIBE", font=font_for("SUBSCRIBE", 32),
+           fill=(255, 255, 255, 255))
     return Image.alpha_composite(img, overlay).convert("RGB")
 
 
@@ -217,7 +301,7 @@ def make_thumbnail(bg_path, text, out_path="thumb.jpg"):
     img = cover_crop(Image.open(bg_path)).convert("RGBA")
     img = Image.alpha_composite(img, Image.new("RGBA", (W, H), (0, 0, 0, 110)))
     d = ImageDraw.Draw(img)
-    font = load_font(100)
+    font = font_for(text, 100)
     lines = wrap_text(d, text, font, W - 160)[:3]
     y = (H - len(lines) * 125) // 2
     for line in lines:
@@ -225,9 +309,7 @@ def make_thumbnail(bg_path, text, out_path="thumb.jpg"):
                stroke_width=6, stroke_fill=(0, 0, 0, 255))
         y += 125
     if os.path.exists("Logo.jpg"):
-        logo = Image.open("Logo.jpg").convert("RGBA").resize((140, 140), Image.LANCZOS)
-        mask = Image.new("L", (140, 140), 0)
-        ImageDraw.Draw(mask).ellipse([0, 0, 140, 140], fill=255)
+        logo, mask = circle_logo(140)
         img.paste(logo, (W - 170, 30), mask)
     img.convert("RGB").save(out_path, quality=90)
     print("Thumbnail ready")
@@ -256,20 +338,17 @@ def generate_bgm(path="bgm_gen.wav", loop_sec=24, sr=22050):
     def string(f):
         return [(f * h, 1.0 / h ** 1.3) for h in range(1, 7)]
 
-    # Tanpura: Pa - Sa - Sa - Sa(low)
-    for cycle in range(4):
+    for cycle in range(4):                                   # Pa - Sa - Sa - Sa(low)
         base = cycle * 6.0
         for i, f in enumerate([root * 1.5, root * 2, root * 2, root]):
             add_tone(string(f), base + i * 1.5, 7.0, 2.2, 0.22)
 
-    # Halki ghanti
-    for start in (6.0, 18.0):
+    for start in (6.0, 18.0):                                # halki ghanti
         add_tone([(root * 4 * r, a) for r, a in [(1, 1), (2.76, .4), (5.4, .2)]],
                  start, 8.0, 2.5, 0.06)
 
-    # Soft pad
     for k, (mult, amp) in enumerate([(1, .10), (1.5, .06), (2, .05)], start=1):
-        f = round(root * mult * loop_sec) / loop_sec
+        f = round(root * mult * loop_sec) / loop_sec         # soft pad
         lfo = 0.6 + 0.4 * np.sin(2 * np.pi * (k + 1) / loop_sec * t)
         out += amp * np.sin(2 * np.pi * f * t) * lfo
 
@@ -285,13 +364,11 @@ def generate_bgm(path="bgm_gen.wav", loop_sec=24, sr=22050):
 
 
 def get_bgm():
-    # 1) Agar repo me "music" folder me apne mp3/wav hain to unme se random
     files = glob.glob("music/*.mp3") + glob.glob("music/*.wav") + glob.glob("bgm*.mp3")
     if files:
         choice = random.choice(files)
         print("BGM (file):", choice)
         return choice
-    # 2) Warna automatic bani hui music
     print("BGM (generated)")
     return generate_bgm()
 
@@ -304,31 +381,36 @@ def render_video(image_paths, audio_path, bgm_path, output_path="final_video.mp4
     duration = voice.duration
     per_image = duration / len(image_paths)
 
-    clips = []
-    for p in image_paths:
-        frame = np.array(make_frame(p))
-        clips.append(ImageClip(frame).set_duration(per_image))
+    clips = [ImageClip(np.array(make_frame(p))).set_duration(per_image)
+             for p in image_paths]
     video = concatenate_videoclips(clips, method="compose")
 
     if bgm_path:
-        bgm = AudioFileClip(bgm_path).volumex(BGM_VOLUME)
-        bgm = audio_loop(bgm, duration=duration)
-        final_audio = CompositeAudioClip([voice, bgm])
+        bgm = audio_loop(AudioFileClip(bgm_path).volumex(BGM_VOLUME), duration=duration)
+        final_audio = CompositeAudioClip([voice, bgm]).set_duration(duration)
     else:
         final_audio = voice
 
     video = video.set_audio(final_audio)
     video.write_videofile(
-        output_path, fps=15, codec="libx264", audio_codec="aac",
+        output_path, fps=FPS, codec="libx264", audio_codec="aac",
         preset="ultrafast", threads=2,
     )
-    print("Video rendered")
+    print("Video rendered, minutes:", round(duration / 60, 1))
     return output_path
 
 
 # ------------------------------------------------------------------
 # 7. YouTube upload
 # ------------------------------------------------------------------
+def clean(s):
+    return re.sub(r"[<>]", "", str(s)).strip()
+
+
+def cut_bytes(s, limit):
+    return s.encode("utf-8")[:limit].decode("utf-8", "ignore")
+
+
 def upload_youtube(video_path, thumb_path, title, description, tags):
     creds = Credentials(
         None,
@@ -341,15 +423,15 @@ def upload_youtube(video_path, thumb_path, title, description, tags):
 
     clean_tags, total = [], 0
     for t in tags:
-        t = str(t).strip()
+        t = clean(t).replace(",", "")
         if t and total + len(t) < 450:
             clean_tags.append(t)
             total += len(t)
 
     body = {
         "snippet": {
-            "title": title[:100],
-            "description": description[:4900],
+            "title": clean(title)[:100],
+            "description": cut_bytes(clean(description), 4800),   # YouTube limit bytes me
             "tags": clean_tags,
             "categoryId": "22",
             "defaultLanguage": "hi",
@@ -361,7 +443,7 @@ def upload_youtube(video_path, thumb_path, title, description, tags):
         part="snippet,status", body=body, media_body=media
     ).execute()
     video_id = response.get("id")
-    print("Uploaded! Video ID:", video_id)
+    print("Uploaded! https://youtu.be/" + str(video_id))
 
     try:
         youtube.thumbnails().set(
@@ -369,26 +451,27 @@ def upload_youtube(video_path, thumb_path, title, description, tags):
         ).execute()
         print("Thumbnail set")
     except Exception as e:
-        print("Thumbnail error (channel verify hona zaroori hai):", e)
+        print("Thumbnail error (channel verify hona zaroori hai):", str(e)[:200])
     return video_id
 
 
 # ------------------------------------------------------------------
 if __name__ == "__main__":
     print("Starting Daily Bhakti Video Automation...")
+    check_secrets()
 
     data = generate_content()
-    title = data.get("title", "भगवान की सुंदर कथा")
+    title = data.get("title") or "भगवान की सुंदर कथा"
     story = data["story"]
-    description = data.get("description", "") + (
+    description = (data.get("description") or "") + (
         f"\n\n🙏 {CHANNEL_NAME} - रोज़ एक नई भक्ति कथा के लिए चैनल को "
         "Subscribe करें और बेल आइकन दबाएँ।"
     )
-    tags = data.get("tags", ["bhakti", "katha"])
-    thumb_text = data.get("thumbnail_text", title)
-    queries = data.get("image_queries") or ["hindu temple", "diya lamp", "lotus"]
+    tags = data.get("tags") or ["bhakti", "katha"]
+    thumb_text = data.get("thumbnail_text") or title
+    queries = data.get("image_queries") or ["hindu temple", "diya lamp", "lotus flower"]
 
-    asyncio.run(make_voiceover(story, "audio.mp3"))
+    make_voiceover(story, "audio.mp3")
     images = download_images(queries)
     if not images:
         raise SystemExit("Error: koi image nahi mili (Pixabay key check karein).")
