@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """
 Daily Bhakti Video Automation (poora code, ek hi file)
 Gemini script -> Hindi voice -> zoom in/out photos -> BGM -> thumbnail -> YouTube upload
