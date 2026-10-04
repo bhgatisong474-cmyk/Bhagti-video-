@@ -23,7 +23,7 @@ from moviepy.audio.fx.all import audio_loop
 # SETTINGS (yahan apne hisaab se badlein)
 # ------------------------------------------------------------------
 CHANNEL_NAME = "Spiritual Bhakti"      # video par dikhne wala channel naam
-GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
+GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.8-flash")
 VOICE = "hi-IN-MadhurNeural"           # female ke liye: hi-IN-SwaraNeural
 PRIVACY = "public"                     # testing ke liye "private" kar sakte hain
 BGM_VOLUME = 0.12
@@ -72,11 +72,23 @@ Return ONLY valid JSON (no markdown) with these keys:
 - "story": the full narration, plain text only, no headings, no stage directions
 """
     client = genai.Client(api_key=GEMINI_KEY)
-    response = client.models.generate_content(
-        model=GEMINI_MODEL,
-        contents=prompt,
-        config=types.GenerateContentConfig(response_mime_type="application/json"),
-    )
+    response = None
+    last_error = None
+    # Ek model band ho jaye to agla try hoga
+    for model_name in [GEMINI_MODEL, "gemini-3.8-flash", "gemini-flash-latest"]:
+        try:
+            response = client.models.generate_content(
+                model=model_name,
+                contents=prompt,
+                config=types.GenerateContentConfig(response_mime_type="application/json"),
+            )
+            print("Gemini model used:", model_name)
+            break
+        except Exception as e:
+            last_error = e
+            print("Model failed:", model_name, str(e)[:150])
+    if response is None:
+        raise last_error
     text = response.text.strip()
     text = re.sub(r"^```(?:json)?|```$", "", text, flags=re.M).strip()
     data = json.loads(text)
