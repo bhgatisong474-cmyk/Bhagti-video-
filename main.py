@@ -26,16 +26,16 @@ CHANNEL_NAME = "Spiritual Bhakti"      # video par dikhne wala channel naam
 VOICE = "hi-IN-MadhurNeural"           # female ke liye: hi-IN-SwaraNeural
 PRIVACY = "public"                     # testing ke liye "private" kar sakte hain
 
-MIN_MINUTES = 8                        # video ki lambai har baar random:
-MAX_MINUTES = 20                       # 8 se 20 minute ke beech
-WORDS_PER_MIN = 135                    # Hindi bolne ki speed (shabd/minute)
+MIN_MINUTES = 10                       # video ki lambai har baar random:
+MAX_MINUTES = 20                       # 10 se 20 minute ke beech
+WORDS_PER_MIN = 175                    # Hindi bolne ki speed (shabd/minute)
 CHAPTER_WORDS = 400                    # har chapter me kitne shabd
 
-SECONDS_PER_IMAGE = 9                  # har photo kitni der dikhe (kam = zyada photos)
+SECONDS_PER_IMAGE = 15                 # har photo kitni der dikhe (kam = zyada photos)
 MAX_IMAGES = 160
-ZOOM_MAX = 1.25                        # zoom kitna gehra (1.0 = zoom nahi)
-FADE = 1.0                             # photo badalte waqt crossfade (second)
-TITLE_SECONDS = 7                      # shuru me title kitni der dikhe
+ZOOM_MAX = 2.15                        # zoom kitna gehra (1.0 = zoom nahi)
+FADE = 2.0                             # photo badalte waqt crossfade (second)
+TITLE_SECONDS = 10                     # shuru me title kitni der dikhe
 BGM_VOLUME = 0.12
 FPS = 20
 W, H = 1280, 720
