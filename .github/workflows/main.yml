@@ -1,33 +1,32 @@
 name: Daily Bhakti Video Automation
 
 on:
-  schedule:
-    - cron: '0 0 * * *'  # रोज़ाना ऑटोमैटिक रन के लिए
-  workflow_dispatch:      # GitHub से मैन्युअल रन करने के लिए
-  repository_dispatch:    # n8n Webhook (build_video) ट्रिगर के लिए
+  # Roz ka trigger n8n se aayega, isliye cron band rakha hai.
+  # Agar sirf GitHub se chalana ho to neeche 2 line ka # hata dein:
+  # schedule:
+  #   - cron: '30 0 * * *'   # subah 6:00 AM IST
+  workflow_dispatch:         # GitHub se manual run
+  repository_dispatch:       # n8n webhook se run
     types: [build_video, n8n_trigger]
 
 jobs:
   build-and-upload:
     runs-on: ubuntu-latest
+    timeout-minutes: 60
 
     steps:
       - name: Check out Repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
-          python-version: '3.10'
+          python-version: '3.11'
 
-      - name: Install System Dependencies (FFmpeg & ImageMagick)
+      - name: Install System Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y ffmpeg imagemagick
-
-      - name: Configure ImageMagick Security Policy
-        run: |
-          sudo sed -i 's/policy domain="path" rights="none" pattern="@*"/<!-- policy domain="path" rights="none" pattern="@*" -->/' /etc/ImageMagick-6/policy.xml
+          sudo apt-get install -y ffmpeg libraqm0 libfribidi0 libharfbuzz0b
 
       - name: Install Python Dependencies
         run: |
@@ -38,8 +37,8 @@ jobs:
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           PIXABAY_API_KEY: ${{ secrets.PIXABAY_API_KEY }}
-          YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
-          YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
-          YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
+          YOUTUBE_CLIENT_ID: ${{ secrets.CLIENT_ID }}
+          YOUTUBE_CLIENT_SECRET: ${{ secrets.CLIENT_SECRET }}
+          YOUTUBE_REFRESH_TOKEN: ${{ secrets.REFRESH_TOKEN }}
+          TOPIC: ${{ github.event.client_payload.topic }}
         run: python main.py
-        
