@@ -1,6 +1,9 @@
 import os
 import re
 import json
+import glob
+import wave
+import random
 import asyncio
 import datetime
 import requests
@@ -212,21 +215,65 @@ def make_thumbnail(bg_path, text, out_path="thumb.jpg"):
 
 
 # ------------------------------------------------------------------
-# 5. Background music
+# 5. Background music (automatic, copyright-free)
 # ------------------------------------------------------------------
+def generate_bgm(path="bgm_gen.wav", loop_sec=24, sr=22050):
+    """Tanpura jaisi drone + soft pad + ghanti. Har baar alag swar (root note).
+    Khud ban-ti hai, isliye copyright ka koi issue nahi."""
+    root = random.choice([130.81, 146.83, 164.81, 174.61, 196.00])
+    n = int(loop_sec * sr)
+    t = np.arange(n) / sr
+    out = np.zeros(n)
+
+    def add_tone(freqs_amps, start, length, decay, amp):
+        m = int(length * sr)
+        tt = np.arange(m) / sr
+        env = np.exp(-tt / decay) * (1 - np.exp(-tt / 0.02))
+        tone = sum(a * np.sin(2 * np.pi * f * tt) for f, a in freqs_amps)
+        idx = (int(start * sr) + np.arange(m)) % n
+        out[idx] += tone * env * amp
+
+    def string(f):
+        return [(f * h, 1.0 / h ** 1.3) for h in range(1, 7)]
+
+    # Tanpura: Pa - Sa - Sa - Sa(low)
+    for cycle in range(4):
+        base = cycle * 6.0
+        for i, f in enumerate([root * 1.5, root * 2, root * 2, root]):
+            add_tone(string(f), base + i * 1.5, 7.0, 2.2, 0.22)
+
+    # Halki ghanti
+    for start in (6.0, 18.0):
+        add_tone([(root * 4 * r, a) for r, a in [(1, 1), (2.76, .4), (5.4, .2)]],
+                 start, 8.0, 2.5, 0.06)
+
+    # Soft pad
+    for k, (mult, amp) in enumerate([(1, .10), (1.5, .06), (2, .05)], start=1):
+        f = round(root * mult * loop_sec) / loop_sec
+        lfo = 0.6 + 0.4 * np.sin(2 * np.pi * (k + 1) / loop_sec * t)
+        out += amp * np.sin(2 * np.pi * f * t) * lfo
+
+    out = out / np.max(np.abs(out)) * 0.8
+    right = np.roll(out, int(0.012 * sr))
+    stereo = (np.stack([out, right], axis=1) * 32767).astype(np.int16)
+    with wave.open(path, "wb") as w:
+        w.setnchannels(2)
+        w.setsampwidth(2)
+        w.setframerate(sr)
+        w.writeframes(stereo.tobytes())
+    return path
+
+
 def get_bgm():
-    # Repo me apna copyright-free "bgm.mp3" upload kar dein (sabse safe)
-    if os.path.exists("bgm.mp3"):
-        return "bgm.mp3"
-    url = os.environ.get("BGM_URL")
-    if url:
-        try:
-            with open("bgm_dl.mp3", "wb") as f:
-                f.write(requests.get(url, timeout=60).content)
-            return "bgm_dl.mp3"
-        except Exception as e:
-            print("Music error:", e)
-    return None
+    # 1) Agar repo me "music" folder me apne mp3/wav hain to unme se random
+    files = glob.glob("music/*.mp3") + glob.glob("music/*.wav") + glob.glob("bgm*.mp3")
+    if files:
+        choice = random.choice(files)
+        print("BGM (file):", choice)
+        return choice
+    # 2) Warna automatic bani hui music
+    print("BGM (generated)")
+    return generate_bgm()
 
 
 # ------------------------------------------------------------------
