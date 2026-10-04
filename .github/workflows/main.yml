@@ -1,12 +1,10 @@
 name: Daily Bhakti Video Automation
 
 on:
-  # Roz ka trigger n8n se aayega, isliye cron band rakha hai.
-  # Agar sirf GitHub se chalana ho to neeche 2 line ka # hata dein:
-  # schedule:
-  #   - cron: '30 0 * * *'   # subah 6:00 AM IST
-  workflow_dispatch:         # GitHub se manual run
-  repository_dispatch:       # n8n webhook se run
+  schedule:
+    - cron: '30 0 * * *'  # 6:00 AM IST
+  workflow_dispatch:
+  repository_dispatch:
     types: [build_video, n8n_trigger]
 
 jobs:
@@ -26,7 +24,7 @@ jobs:
       - name: Install System Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y ffmpeg libraqm0 libfribidi0 libharfbuzz0b fonts-lohit-deva fonts-dejavu-core
+          sudo apt-get install -y ffmpeg libavcodec-extra libfribidi0 libharfuzz0 fonts-lohit-deva fonts-dejavu fonts-noto-core
 
       - name: Install Python Dependencies
         run: |
@@ -35,10 +33,33 @@ jobs:
 
       - name: Run Video Automation Script
         env:
+          # Secrets se environment variables
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          PIXABAY_API_KEY: ${{ secrets.PIXABAY_API_KEY }}
-          YOUTUBE_CLIENT_ID: ${{ secrets.CLIENT_ID }}
-          YOUTUBE_CLIENT_SECRET: ${{ secrets.CLIENT_SECRET }}
-          YOUTUBE_REFRESH_TOKEN: ${{ secrets.REFRESH_TOKEN }}
-          TOPIC: ${{ github.event.client_payload.topic }}
+          YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
+          YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
+          YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
+          
+          # Optional - Pexels ke liye (real photos ke liye)
+          PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
+          
+          # Settings (zyada se zyada 20 minute tak)
+          CHANNEL_NAME: 'भक्ति विचार'
+          MIN_MINUTES: '10'
+          MAX_MINUTES: '20'
+          BGM_VOLUME: '0.12'
+          PRIVACY: 'private'
+          
+          # Topic - n8n webhook ya manual run se aayega, warna default
+          TOPIC: ${{ github.event.client_payload.topic || 'आज का भक्ति विचार और प्रेरणा' }}
         run: python main.py
+
+      - name: Upload Output (agar fail ho)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: video-output
+          path: |
+            final_video.mp4
+            thumbnail.jpg
+            work/
+          retention-days: 3
