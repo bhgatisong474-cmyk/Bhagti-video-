@@ -145,7 +145,7 @@ def ask_gemini(prompt, as_json=False, check=None):
                 if as_json:
                     kwargs["config"] = types.GenerateContentConfig(
                         response_mime_type="application/json")
-                response = client.models.generate_content(
+                response = client.models.generate_content_stream(
                     model=model_name, contents=prompt, **kwargs)
                 result = parse_json(response.text) if as_json else (response.text or "").strip()
                 if check:
