@@ -1,9 +1,9 @@
-google-generativeai
+google-genai
 edge-tts
 moviepy==1.0.3
 requests
+numpy
+pillow==9.5.0
 google-api-python-client
 google-auth-oauthlib
 google-auth-httplib2
-pillow
-pytrends
