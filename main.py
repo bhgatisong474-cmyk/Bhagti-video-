@@ -4,6 +4,7 @@ import json
 import glob
 import wave
 import random
+import time
 import asyncio
 import datetime
 import requests
@@ -74,19 +75,26 @@ Return ONLY valid JSON (no markdown) with these keys:
     client = genai.Client(api_key=GEMINI_KEY)
     response = None
     last_error = None
-    # Ek model band ho jaye to agla try hoga
+    # 503 (high demand) aaye to ruk kar dobara try karega; model band ho to agla model
     for model_name in [GEMINI_MODEL, "gemini-3.8-flash", "gemini-flash-latest"]:
-        try:
-            response = client.models.generate_content(
-                model=model_name,
-                contents=prompt,
-                config=types.GenerateContentConfig(response_mime_type="application/json"),
-            )
-            print("Gemini model used:", model_name)
+        for attempt in range(1, 6):
+            try:
+                response = client.models.generate_content(
+                    model=model_name,
+                    contents=prompt,
+                    config=types.GenerateContentConfig(response_mime_type="application/json"),
+                )
+                print("Gemini model used:", model_name)
+                break
+            except Exception as e:
+                last_error = e
+                msg = str(e)
+                print(f"Model {model_name} attempt {attempt} failed:", msg[:150])
+                if "404" in msg or "NOT_FOUND" in msg:
+                    break                      # ye model hi nahi hai, agla try karo
+                time.sleep(30 * attempt)       # 30s, 60s, 90s... ruk kar dobara
+        if response is not None:
             break
-        except Exception as e:
-            last_error = e
-            print("Model failed:", model_name, str(e)[:150])
     if response is None:
         raise last_error
     text = response.text.strip()
