@@ -1,8 +1,9 @@
 google-genai
 edge-tts
+gTTS
 moviepy==1.0.3
 requests
-numpy
+numpy<2
 pillow==9.5.0
 google-api-python-client
 google-auth-oauthlib
