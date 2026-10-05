@@ -41,4 +41,5 @@ jobs:
           YOUTUBE_CLIENT_SECRET: ${{ secrets.CLIENT_SECRET }}
           YOUTUBE_REFRESH_TOKEN: ${{ secrets.REFRESH_TOKEN }}
           TOPIC: ${{ github.event.client_payload.topic }}
+          PYTHONUNBUFFERED: "1"
         run: python main.py
