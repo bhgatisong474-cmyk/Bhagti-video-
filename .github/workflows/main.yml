@@ -42,4 +42,5 @@ jobs:
           YOUTUBE_REFRESH_TOKEN: ${{ secrets.REFRESH_TOKEN }}
           TOPIC: ${{ github.event.client_payload.topic }}
           PYTHONUNBUFFERED: "1"
-        run: python main.py
+        run: |
+          python main.py || (echo "Pehli koshish fail, 5 minute baad dobara..." && sleep 300 && python main.py)
