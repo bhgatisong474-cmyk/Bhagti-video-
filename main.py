@@ -28,7 +28,6 @@ GEMINI_MODELS = [
     os.environ.get("GEMINI_MODEL", "gemini-3.8-flash"),
     "gemini-3.8-flash",
     "gemini-flash-latest",
-    "genimi-pro",
     "gemini-flash-lite-latest",
 ]
 VOICE = "hi-IN-MadhurNeural"           # female ke liye: hi-IN-SwaraNeural
