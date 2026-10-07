@@ -4,7 +4,7 @@ on:
   # Roz ka trigger n8n se aayega, isliye cron band rakha hai.
   # Agar sirf GitHub se chalana ho to neeche 2 line ka # hata dein:
   # schedule:
-     - cron: '30 10 * * *'   # subah 4:00 PM IST
+    # - cron: '30 10 * * *'   # subah 4:00 PM IST
   workflow_dispatch:         # GitHub se manual run
   repository_dispatch:       # n8n webhook se run
     types: [build_video, n8n_trigger]
