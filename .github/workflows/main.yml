@@ -4,7 +4,7 @@ on:
   # Roz ka trigger n8n se aayega, isliye cron band rakha hai.
   # Agar sirf GitHub se chalana ho to neeche 2 line ka # hata dein:
   # schedule:
-  #   - cron: '30 0 * * *'   # subah 6:00 AM IST
+     - cron: '30 10 * * *'   # subah 4:00 PM IST
   workflow_dispatch:         # GitHub se manual run
   repository_dispatch:       # n8n webhook se run
     types: [build_video, n8n_trigger]
@@ -12,7 +12,7 @@ on:
 jobs:
   build-and-upload:
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 60
 
     steps:
       - name: Check out Repository
@@ -43,4 +43,4 @@ jobs:
           TOPIC: ${{ github.event.client_payload.topic }}
           PYTHONUNBUFFERED: "1"
         run: |
-          python main.py || (echo "Pehli koshish fail, 5 minute baad dobara..." && sleep 300 && python main.py)
+          python main.py || (echo "Pehli koshish fail, 2 minute baad dobara..." && sleep 120 && python main.py)
