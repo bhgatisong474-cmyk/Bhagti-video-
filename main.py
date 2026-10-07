@@ -28,9 +28,6 @@ GEMINI_MODELS = [
     os.environ.get("GEMINI_MODEL", "gemini-3.8-flash"),
     "gemini-3.8-flash",
     "gemini-flash-latest",
-    "gemini-1.5-flash-8b",
-    "gemini-2.0-flash",
-    "genimi-2.0-pro",
     "genimi-pro",
     "gemini-flash-lite-latest",
 ]
