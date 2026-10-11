@@ -1,55 +1,12 @@
 name: Daily Bhakti Video Automation
 
 on:
-  # 1) HAR ROZ khud chalega: subah 5:00 IST (23:30 UTC). Sirf GitHub, n8n ki zaroorat nahi.
   schedule:
-    - cron: '30 23 * * *'
-  # 2) Haath se chalane ke liye (Actions -> Run workflow)
+    - cron: '30 23 * * *'  # रोज़ सुबह 5:00 IST (23:30 UTC)
   workflow_dispatch:
-  # 3) (Optional) n8n ya koi aur bahar se trigger kare to
-  repository_dispatch:
-    types: [build_video, n8n_trigger]
-
-permissions:
-  contents: read
-  actions: write
-
-concurrency:
-  group: bhakti-video
-  cancel-in-progress: false
 
 jobs:
-  check:
-    runs-on: ubuntu-24.04
-    outputs:
-      skip: ${{ steps.c.outputs.skip }}
-    steps:
-      - name: Aaj ka video pehle ban chuka hai kya?
-        id: c
-        env:
-          GH_TOKEN: ${{ github.token }}
-          EVENT: ${{ github.event_name }}
-        run: |
-          SKIP=no
-          if [ "$EVENT" = "schedule" ]; then
-            TODAY=$(TZ=Asia/Kolkata date +%F)
-            START=$(date -u -d "$TODAY 00:00 +0530" +%Y-%m-%dT%H:%M:%SZ)
-            COUNT=$(gh api -X GET "repos/${{ github.repository }}/actions/workflows/main.yml/runs" \
-              -f status=success -f created=">=$START" -f per_page=1 --jq '.total_count' || echo 0)
-            echo "Aaj (IST) ke successful runs: $COUNT"
-            if [ "${COUNT:-0}" -gt 0 ]; then SKIP=yes; fi
-          fi
-          echo "skip=$SKIP" >> "$GITHUB_OUTPUT"
-
-      - name: Schedule ko 60 din wali band hone se bachao (keep-alive)
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          gh api -X PUT "repos/${{ github.repository }}/actions/workflows/main.yml/enable" || true
-
   build-and-upload:
-    needs: check
-    if: needs.check.outputs.skip != 'yes'
     runs-on: ubuntu-24.04
     timeout-minutes: 120
 
@@ -65,7 +22,7 @@ jobs:
       - name: Install System Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y ffmpeg libraqm0 libfribidi0 libharfbuzz0b fonts-lohit-deva fonts-dejavu-core
+          sudo apt-get install -y ffmpeg fonts-dejavu-core
 
       - name: Install Python Dependencies
         run: |
@@ -79,7 +36,7 @@ jobs:
           YOUTUBE_CLIENT_ID: ${{ secrets.CLIENT_ID }}
           YOUTUBE_CLIENT_SECRET: ${{ secrets.CLIENT_SECRET }}
           YOUTUBE_REFRESH_TOKEN: ${{ secrets.REFRESH_TOKEN }}
-          TOPIC: ${{ github.event.client_payload.topic }}
           PYTHONUNBUFFERED: "1"
         run: |
-          python main.py || (echo "Pehli koshish fail, 5 minute baad dobara..." && sleep 300 && python main.py)
+          python main.py || (echo "Retry after 3 minutes..." && sleep 180 && python main.py)
+          
