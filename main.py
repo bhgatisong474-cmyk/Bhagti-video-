@@ -27,10 +27,10 @@ from moviepy.audio.fx.all import audio_loop, audio_fadeout
 # ------------------------------------------------------------------
 CHANNEL_NAME = "Spiritual Bhakti"      # video par dikhne wala channel naam
 GEMINI_MODELS = [
-    os.environ.get("GEMINI_MODEL", "gemini-2.5-flash"),
-    "gemini-2.5-flash",
-    "gemini-1.5-flash",
+    os.environ.get("GEMINI_MODEL", "gemini-3.8-flash"),
+    "gemini-3.8-flash",
     "gemini-flash-latest",
+    "gemini-flash-lite-latest",
 ]
 VOICE = "hi-IN-MadhurNeural"           # female ke liye: hi-IN-SwaraNeural
 USE_TRENDING = True                    # Google Trends (India) se bhakti topic dhoondhna
