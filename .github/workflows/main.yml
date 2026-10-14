@@ -1,12 +1,20 @@
 name: Daily Bhakti Video Automation
+run-name: Bhakti ${{ github.event.schedule }}
 
 on:
-  # 1) HAR ROZ khud chalega: subah 5:00 IST (23:30 UTC). Sirf GitHub, n8n ki zaroorat nahi.
+  # Roz 2 video, sirf GitHub se (n8n ki zaroorat nahi):
   schedule:
-    - cron: '30 23 * * *'
-  # 2) Haath se chalane ke liye (Actions -> Run workflow)
+    - cron: '30 23 * * *'   # subah 5:00 IST  -> video 1 (lamba)
+    - cron: '0 13 * * *'    # shaam 6:30 IST  -> video 2 (chhota)
+  # Haath se chalane ke liye (Actions -> Run workflow)
   workflow_dispatch:
-  # 3) (Optional) n8n ya koi aur bahar se trigger kare to
+    inputs:
+      slot:
+        description: 'Kaun sa video: 0 = subah (lamba), 1 = shaam (chhota)'
+        type: choice
+        default: '0'
+        options: ['0', '1']
+  # (Optional) bahar se trigger
   repository_dispatch:
     types: [build_video, n8n_trigger]
 
@@ -23,20 +31,33 @@ jobs:
     runs-on: ubuntu-24.04
     outputs:
       skip: ${{ steps.c.outputs.skip }}
+      slot: ${{ steps.c.outputs.slot }}
     steps:
-      - name: Aaj ka video pehle ban chuka hai kya?
+      - name: Kaun sa video hai aur kya wo aaj pehle ban chuka hai?
         id: c
         env:
           GH_TOKEN: ${{ github.token }}
           EVENT: ${{ github.event_name }}
+          CRON: ${{ github.event.schedule }}
+          INPUT_SLOT: ${{ github.event.inputs.slot }}
+          REPO: ${{ github.repository }}
         run: |
+          SLOT=0
+          if [ "$EVENT" = "schedule" ]; then
+            if [ "$CRON" = "0 13 * * *" ]; then SLOT=1; fi
+          elif [ "$EVENT" = "workflow_dispatch" ]; then
+            SLOT="${INPUT_SLOT:-0}"
+          fi
+          echo "slot=$SLOT" >> "$GITHUB_OUTPUT"
+
           SKIP=no
           if [ "$EVENT" = "schedule" ]; then
             TODAY=$(TZ=Asia/Kolkata date +%F)
             START=$(date -u -d "$TODAY 00:00 +0530" +%Y-%m-%dT%H:%M:%SZ)
-            COUNT=$(gh api -X GET "repos/${{ github.repository }}/actions/workflows/main.yml/runs" \
-              -f status=success -f created=">=$START" -f per_page=1 --jq '.total_count' || echo 0)
-            echo "Aaj (IST) ke successful runs: $COUNT"
+            COUNT=$(gh api -X GET "repos/$REPO/actions/workflows/main.yml/runs" \
+              -f status=success -f created=">=$START" -f per_page=100 \
+              | python3 -c "import sys, json, os; k = os.environ['CRON']; d = json.load(sys.stdin); print(len([r for r in d.get('workflow_runs', []) if k in (r.get('display_title') or '')]))" || echo 0)
+            echo "Is slot ($CRON) ke aaj ke successful runs: ${COUNT:-0}"
             if [ "${COUNT:-0}" -gt 0 ]; then SKIP=yes; fi
           fi
           echo "skip=$SKIP" >> "$GITHUB_OUTPUT"
@@ -79,7 +100,11 @@ jobs:
           YOUTUBE_CLIENT_ID: ${{ secrets.CLIENT_ID }}
           YOUTUBE_CLIENT_SECRET: ${{ secrets.CLIENT_SECRET }}
           YOUTUBE_REFRESH_TOKEN: ${{ secrets.REFRESH_TOKEN }}
+          CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+          CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
           TOPIC: ${{ github.event.client_payload.topic }}
+          SLOT: ${{ needs.check.outputs.slot }}
+          VIDEOS_PER_DAY: "2"
           PYTHONUNBUFFERED: "1"
         run: |
           python main.py || (echo "Pehli koshish fail, 5 minute baad dobara..." && sleep 300 && python main.py)
